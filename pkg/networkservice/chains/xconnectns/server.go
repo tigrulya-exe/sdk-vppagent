@@ -23,6 +23,8 @@ import (
 	"net"
 	"net/url"
 
+	"github.com/networkservicemesh/sdk-vppagent/pkg/networkservice/mechanisms/directmemif"
+
 	"github.com/networkservicemesh/api/pkg/api/networkservice"
 	"github.com/networkservicemesh/sdk/pkg/tools/token"
 
@@ -32,8 +34,6 @@ import (
 	"github.com/networkservicemesh/sdk-vppagent/pkg/networkservice/metrics"
 
 	"go.ligato.io/vpp-agent/v3/proto/ligato/configurator"
-
-	"github.com/networkservicemesh/sdk-vppagent/pkg/networkservice/mechanisms/directmemif"
 
 	"google.golang.org/grpc"
 
@@ -74,7 +74,6 @@ func NewServer(ctx context.Context, name string, authzServer networkservice.Netw
 		tokenGenerator,
 		// Make sure we have a fresh empty config for everyone in the chain to use
 		vppagent.NewServer(),
-		directmemif.NewServer(),
 		mechanisms.NewServer(map[string]networkservice.NetworkServiceServer{
 			memif.MECHANISM:  memif.NewServer(baseDir),
 			kernel.MECHANISM: kernel.NewServer(),
@@ -102,6 +101,7 @@ func NewServer(ctx context.Context, name string, authzServer networkservice.Netw
 			clientDialOptions...,
 		),
 		connectioncontextkernel.NewServer(),
+		directmemif.NewServer(),
 		metrics.NewServer(configurator.NewStatsPollerServiceClient(vppagentCC)),
 		commit.NewServer(vppagentCC),
 	)
