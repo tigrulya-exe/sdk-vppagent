@@ -23,6 +23,7 @@ import (
 	"io/ioutil"
 	"net/url"
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -149,4 +150,7 @@ func TestDirectMemifCase(t *testing.T) {
 
 	_, err = server.Request(ctx, request(t))
 	require.NoError(t, err)
+
+	_, err = os.Stat(filepath.Join(dir, sourceSocketFile))
+	require.False(t, os.IsNotExist(err))
 }
