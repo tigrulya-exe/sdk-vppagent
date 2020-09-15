@@ -23,6 +23,9 @@ import (
 	"net"
 	"net/url"
 
+	"github.com/networkservicemesh/sdk/pkg/networkservice/core/adapters"
+	"github.com/networkservicemesh/sdk/pkg/tools/addressof"
+
 	"github.com/networkservicemesh/sdk-vppagent/pkg/networkservice/mechanisms/directmemif"
 
 	"github.com/networkservicemesh/api/pkg/api/networkservice"
@@ -41,8 +44,6 @@ import (
 	"github.com/networkservicemesh/sdk/pkg/networkservice/chains/endpoint"
 	"github.com/networkservicemesh/sdk/pkg/networkservice/common/clienturl"
 	"github.com/networkservicemesh/sdk/pkg/networkservice/common/connect"
-	"github.com/networkservicemesh/sdk/pkg/networkservice/core/adapters"
-	"github.com/networkservicemesh/sdk/pkg/tools/addressof"
 
 	"github.com/networkservicemesh/sdk-vppagent/pkg/networkservice/commit"
 	"github.com/networkservicemesh/sdk-vppagent/pkg/networkservice/mechanisms/kernel"
