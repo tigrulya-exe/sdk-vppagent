@@ -45,7 +45,11 @@ func (s *metricsServer) Request(ctx context.Context, request *networkservice.Net
 	if conf == nil {
 		return nil, errors.New("VPPAgent config is missing")
 	}
+
 	ifaces := conf.GetVppConfig().GetInterfaces()
+	if len(ifaces) == 0 {
+		return next.Server(ctx).Request(ctx, request)
+	}
 
 	index := request.GetConnection().GetPath().GetIndex()
 	conn, err := next.Server(ctx).Request(ctx, request)
