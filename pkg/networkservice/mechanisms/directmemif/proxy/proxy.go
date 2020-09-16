@@ -20,6 +20,7 @@
 package proxy
 
 import (
+	"github.com/networkservicemesh/sdk-vppagent/pkg/networkservice/metrics"
 	"net"
 	"os"
 	"syscall"
@@ -56,13 +57,14 @@ type Proxy interface {
 }
 
 type proxyImpl struct {
-	listener       Listener
-	network        string
-	stopCh         chan struct{}
-	errCh          chan error
-	sourceListener *net.UnixListener
-	source         *net.UnixAddr
-	target         *net.UnixAddr
+	listener         Listener
+	network          string
+	stopCh           chan struct{}
+	errCh            chan error
+	sourceListener   *net.UnixListener
+	source           *net.UnixAddr
+	target           *net.UnixAddr
+	metricsCollector metrics.Collector
 }
 
 type connectionResult struct {
@@ -71,7 +73,7 @@ type connectionResult struct {
 }
 
 // New creates a new proxy for memif connection with specific network
-func New(sourceSocket, targetSocket, network string, listener Listener) (Proxy, error) {
+func New(sourceSocket, targetSocket, network string, metricsCollector metrics.Collector, listener Listener) (Proxy, error) {
 	source, err := net.ResolveUnixAddr(network, sourceSocket)
 	if err != nil {
 		return nil, err
@@ -89,10 +91,11 @@ func New(sourceSocket, targetSocket, network string, listener Listener) (Proxy, 
 		return nil, err
 	}
 	return &proxyImpl{
-		source:   source,
-		target:   target,
-		network:  network,
-		listener: listener,
+		source:           source,
+		target:           target,
+		network:          network,
+		listener:         listener,
+		metricsCollector: metricsCollector,
 	}, nil
 }
 
@@ -183,8 +186,8 @@ func (p *proxyImpl) proxy() error {
 	sourceStopCh := make(chan struct{})
 	targetStopCh := make(chan struct{})
 
-	go transfer(sourceFd, targetFd, sourceStopCh)
-	go transfer(targetFd, sourceFd, targetStopCh)
+	go p.transfer(sourceFd, targetFd, sourceStopCh, "tx_bytes")
+	go p.transfer(targetFd, sourceFd, targetStopCh, "rx_bytes")
 
 	select {
 	case <-p.stopCh:
@@ -244,14 +247,14 @@ func acceptConnectionAsync(listener *net.UnixListener, stopCh <-chan struct{}) (
 	}
 }
 
-func transfer(fromFd, toFd int, stopCh chan struct{}) {
+func (p *proxyImpl) transfer(fromFd, toFd int, stopCh chan struct{}, metricsKey string) {
 	dataBuffer := make([]byte, bufferSize)
 	cmsgBuffer := make([]byte, cmsgSize)
 	defer close(stopCh)
 	for {
 		select {
 		case <-stopCh:
-			logrus.Infof("Transfer from %v to %v has benn stopped", fromFd, toFd)
+			logrus.Infof("Transfer from %v to %v has been stopped", fromFd, toFd)
 			return
 		default:
 			dataN, cmsgN, _, _, err := syscall.Recvmsg(fromFd, dataBuffer, cmsgBuffer, 0)
@@ -272,9 +275,25 @@ func transfer(fromFd, toFd int, stopCh chan struct{}) {
 				logrus.Error(err)
 				return
 			}
+			if err := p.updateMetrics(metricsKey, uint(dataN)); err != nil {
+				logrus.Error(err)
+			}
+
 			logrus.Infof("Send message to %v", toFd)
 		}
 	}
+}
+
+func (p *proxyImpl) updateMetrics(key string, bytesCount uint) error {
+	if p.metricsCollector == nil || bytesCount == 0 {
+		return nil
+	}
+
+	return p.metricsCollector.Update(
+		metrics.DirectMemifMetrics(map[string]uint{
+			key: bytesCount,
+		}),
+	)
 }
 
 func getConnFd(conn *net.UnixConn) (fd int, closeFunc func(), err error) {

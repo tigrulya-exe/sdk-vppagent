@@ -21,7 +21,7 @@ package directmemif
 
 import (
 	"context"
-
+	"github.com/networkservicemesh/sdk-vppagent/pkg/networkservice/metrics"
 	interfaces "go.ligato.io/vpp-agent/v3/proto/ligato/vpp/interfaces"
 
 	"github.com/golang/protobuf/ptypes/empty"
@@ -37,9 +37,10 @@ import (
 )
 
 type directMemifServer struct {
-	net      string
-	executor serialize.Executor
-	proxies  map[string]proxy.Proxy
+	net               string
+	executor          serialize.Executor
+	proxies           map[string]proxy.Proxy
+	metricsCollectors map[string]metrics.Collector
 }
 
 // NewServer creates new direct memif server
@@ -50,9 +51,10 @@ func NewServer() networkservice.NetworkServiceServer {
 // NewServerWithNetwork creates new direct memif server with specific network
 func NewServerWithNetwork(net string) networkservice.NetworkServiceServer {
 	return &directMemifServer{
-		executor: serialize.NewExecutor(),
-		proxies:  map[string]proxy.Proxy{},
-		net:      net,
+		executor:          serialize.NewExecutor(),
+		proxies:           map[string]proxy.Proxy{},
+		metricsCollectors: map[string]metrics.Collector{},
+		net:               net,
 	}
 }
 
@@ -68,23 +70,30 @@ func (d *directMemifServer) Request(ctx context.Context, request *networkservice
 		return next.Server(ctx).Request(ctx, request)
 	}
 	vc.Interfaces = vc.GetInterfaces()[:l-2]
-	p, err := proxy.New(client.GetMemif().GetSocketFilename(), endpoint.GetMemif().GetSocketFilename(), d.net, proxy.StopListenerAdapter(func() {
-		d.executor.AsyncExec(func() {
-			delete(d.proxies, request.Connection.Id)
-		})
-	}))
+
+	connectionId := request.GetConnection().GetId()
+	if _, ok := d.metricsCollectors[connectionId]; !ok {
+		d.metricsCollectors[connectionId] = metrics.NewDirectMemifCollector()
+	}
+	p, err := proxy.New(client.GetMemif().GetSocketFilename(), endpoint.GetMemif().GetSocketFilename(), d.net, d.metricsCollectors[connectionId],
+		proxy.StopListenerAdapter(func() {
+			d.executor.AsyncExec(func() {
+				delete(d.proxies, connectionId)
+			})
+		}))
 	if err != nil {
 		return nil, err
 	}
+
 	d.executor.AsyncExec(func() {
-		prev := d.proxies[request.GetConnection().GetId()]
+		prev := d.proxies[connectionId]
 		if prev != nil {
 			_ = prev.Stop()
 			d.executor.AsyncExec(func() {
-				d.proxies[request.GetConnection().GetId()] = p
+				d.proxies[connectionId] = p
 			})
 		} else {
-			d.proxies[request.GetConnection().GetId()] = p
+			d.proxies[connectionId] = p
 		}
 	})
 	err = p.Start()
@@ -92,7 +101,13 @@ func (d *directMemifServer) Request(ctx context.Context, request *networkservice
 		return nil, err
 	}
 	d.removeXConnect(vc, client, endpoint)
-	return next.Server(ctx).Request(ctx, request)
+	con, err := next.Server(ctx).Request(ctx, request)
+
+	d.executor.AsyncExec(func() {
+		path := request.GetConnection().GetPath()
+		path.GetPathSegments()[path.GetIndex()].Metrics = d.metricsCollectors[connectionId].Metrics()
+	})
+	return con, err
 }
 
 func (d *directMemifServer) Close(ctx context.Context, conn *networkservice.Connection) (*empty.Empty, error) {
