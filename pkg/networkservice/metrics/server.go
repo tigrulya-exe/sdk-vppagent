@@ -22,7 +22,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/sirupsen/logrus"
+	"github.com/networkservicemesh/sdk/pkg/tools/log"
 
 	"go.ligato.io/vpp-agent/v3/proto/ligato/configurator"
 	vpp_interfaces "go.ligato.io/vpp-agent/v3/proto/ligato/vpp/interfaces"
@@ -50,7 +50,7 @@ func (s *metricsServer) Request(ctx context.Context, request *networkservice.Net
 
 	ifaces := conf.GetVppConfig().GetInterfaces()
 	if len(ifaces) == 0 {
-		logrus.Info("MetricsServer skipped: empty vppconfig interfaces")
+		log.Entry(ctx).Warn("vppconfig has no interfaces")
 		return next.Server(ctx).Request(ctx, request)
 	}
 
