@@ -22,22 +22,23 @@ import (
 	"sync"
 )
 
-type Collector interface {
+type DirectMemifMetrics struct {
+	Rx_bytes uint
+	Tx_bytes uint
+}
+
+type MetricsCollector interface {
 	Update(interface{}) error
 	Metrics() map[string]string
 }
-
-type DirectMemifMetrics map[string]uint
 
 type directMemifCollector struct {
 	lock    sync.Mutex
 	metrics DirectMemifMetrics
 }
 
-func NewDirectMemifCollector() Collector {
-	return &directMemifCollector{
-		metrics: make(map[string]uint),
-	}
+func NewDirectMemifCollector() MetricsCollector {
+	return &directMemifCollector{}
 }
 
 func (d *directMemifCollector) Update(toMerge interface{}) error {
@@ -48,9 +49,8 @@ func (d *directMemifCollector) Update(toMerge interface{}) error {
 
 	d.lock.Lock()
 	defer d.lock.Unlock()
-	for k, v := range memifMetrics {
-		d.metrics[k] += v
-	}
+	d.metrics.Rx_bytes += memifMetrics.Rx_bytes
+	d.metrics.Tx_bytes += memifMetrics.Tx_bytes
 
 	return nil
 }
@@ -58,10 +58,8 @@ func (d *directMemifCollector) Update(toMerge interface{}) error {
 func (d *directMemifCollector) Metrics() map[string]string {
 	d.lock.Lock()
 	defer d.lock.Unlock()
-	result := make(map[string]string)
-	for k, v := range d.metrics {
-		result[k] = fmt.Sprint(v)
+	return map[string]string{
+		"rx_bytes": fmt.Sprint(d.metrics.Rx_bytes),
+		"tx_bytes": fmt.Sprint(d.metrics.Tx_bytes),
 	}
-
-	return result
 }

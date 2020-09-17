@@ -20,7 +20,7 @@
 package proxy
 
 import (
-	"github.com/networkservicemesh/sdk-vppagent/pkg/networkservice/metrics"
+	"github.com/networkservicemesh/sdk-vppagent/pkg/networkservice/mechanisms/directmemif/metrics"
 	"net"
 	"os"
 	"syscall"
@@ -37,6 +37,8 @@ const (
 
 // StopListenerAdapter adapts func() to Listener interface
 type StopListenerAdapter func()
+
+type metricsAdapter func(int) metrics.DirectMemifMetrics
 
 // OnStopped occurs when proxy stopped
 func (f StopListenerAdapter) OnStopped() {
@@ -64,7 +66,7 @@ type proxyImpl struct {
 	sourceListener   *net.UnixListener
 	source           *net.UnixAddr
 	target           *net.UnixAddr
-	metricsCollector metrics.Collector
+	metricsCollector metrics.MetricsCollector
 }
 
 type connectionResult struct {
@@ -73,7 +75,7 @@ type connectionResult struct {
 }
 
 // New creates a new proxy for memif connection with specific network
-func New(sourceSocket, targetSocket, network string, metricsCollector metrics.Collector, listener Listener) (Proxy, error) {
+func New(sourceSocket, targetSocket, network string, metricsCollector metrics.MetricsCollector, listener Listener) (Proxy, error) {
 	source, err := net.ResolveUnixAddr(network, sourceSocket)
 	if err != nil {
 		return nil, err
@@ -186,8 +188,12 @@ func (p *proxyImpl) proxy() error {
 	sourceStopCh := make(chan struct{})
 	targetStopCh := make(chan struct{})
 
-	go p.transfer(sourceFd, targetFd, sourceStopCh, "tx_bytes")
-	go p.transfer(targetFd, sourceFd, targetStopCh, "rx_bytes")
+	go p.transfer(sourceFd, targetFd, sourceStopCh, func(n int) metrics.DirectMemifMetrics {
+		return metrics.DirectMemifMetrics{Tx_bytes: uint(n)}
+	})
+	go p.transfer(targetFd, sourceFd, targetStopCh, func(n int) metrics.DirectMemifMetrics {
+		return metrics.DirectMemifMetrics{Rx_bytes: uint(n)}
+	})
 
 	select {
 	case <-p.stopCh:
@@ -247,7 +253,7 @@ func acceptConnectionAsync(listener *net.UnixListener, stopCh <-chan struct{}) (
 	}
 }
 
-func (p *proxyImpl) transfer(fromFd, toFd int, stopCh chan struct{}, metricsKey string) {
+func (p *proxyImpl) transfer(fromFd, toFd int, stopCh chan struct{}, adapter metricsAdapter) {
 	dataBuffer := make([]byte, bufferSize)
 	cmsgBuffer := make([]byte, cmsgSize)
 	defer close(stopCh)
@@ -275,25 +281,12 @@ func (p *proxyImpl) transfer(fromFd, toFd int, stopCh chan struct{}, metricsKey 
 				logrus.Error(err)
 				return
 			}
-			if err := p.updateMetrics(metricsKey, uint(dataN)); err != nil {
-				logrus.Error(err)
-			}
 
-			logrus.Infof("Send message to %v", toFd)
+			if p.metricsCollector != nil {
+				_ = p.metricsCollector.Update(adapter(dataN))
+			}
 		}
 	}
-}
-
-func (p *proxyImpl) updateMetrics(key string, bytesCount uint) error {
-	if p.metricsCollector == nil || bytesCount == 0 {
-		return nil
-	}
-
-	return p.metricsCollector.Update(
-		metrics.DirectMemifMetrics(map[string]uint{
-			key: bytesCount,
-		}),
-	)
 }
 
 func getConnFd(conn *net.UnixConn) (fd int, closeFunc func(), err error) {

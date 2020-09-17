@@ -21,7 +21,7 @@ package directmemif
 
 import (
 	"context"
-	"github.com/networkservicemesh/sdk-vppagent/pkg/networkservice/metrics"
+	"github.com/networkservicemesh/sdk-vppagent/pkg/networkservice/mechanisms/directmemif/metrics"
 	interfaces "go.ligato.io/vpp-agent/v3/proto/ligato/vpp/interfaces"
 
 	"github.com/golang/protobuf/ptypes/empty"
@@ -40,7 +40,7 @@ type directMemifServer struct {
 	net               string
 	executor          serialize.Executor
 	proxies           map[string]proxy.Proxy
-	metricsCollectors map[string]metrics.Collector
+	metricsCollectors map[string]metrics.MetricsCollector
 }
 
 // NewServer creates new direct memif server
@@ -53,7 +53,7 @@ func NewServerWithNetwork(net string) networkservice.NetworkServiceServer {
 	return &directMemifServer{
 		executor:          serialize.NewExecutor(),
 		proxies:           map[string]proxy.Proxy{},
-		metricsCollectors: map[string]metrics.Collector{},
+		metricsCollectors: map[string]metrics.MetricsCollector{},
 		net:               net,
 	}
 }
@@ -127,6 +127,9 @@ func (d *directMemifServer) Close(ctx context.Context, conn *networkservice.Conn
 			_ = d.proxies[conn.Id].Stop()
 			delete(d.proxies, conn.Id)
 		}
+		d.executor.AsyncExec(func() {
+			delete(d.metricsCollectors, conn.Id)
+		})
 	})
 	return next.Server(ctx).Close(ctx, conn)
 }
