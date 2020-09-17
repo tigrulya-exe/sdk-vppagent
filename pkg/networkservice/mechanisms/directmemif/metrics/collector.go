@@ -25,7 +25,7 @@ import (
 
 // DirectMemifMetrics is struct, containing information about directmemif connection
 type DirectMemifMetrics struct {
-	// RxBytes is a total number of bytes received from source
+	// RxBytes is a total number of bytes received from target
 	RxBytes uint
 	// TxBytes is a total number of bytes transmitted to target
 	TxBytes uint
