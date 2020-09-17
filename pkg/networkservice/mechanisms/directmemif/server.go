@@ -103,12 +103,14 @@ func (d *directMemifServer) Request(ctx context.Context, request *networkservice
 		return nil, err
 	}
 	d.removeXConnect(vc, client, endpoint)
-	con, err := next.Server(ctx).Request(ctx, request)
 
-	d.executor.AsyncExec(func() {
-		path := request.GetConnection().GetPath()
-		path.GetPathSegments()[path.GetIndex()].Metrics = d.metricsCollectors[connectionID].Metrics()
-	})
+	con, err := next.Server(ctx).Request(ctx, request)
+	if err == nil {
+		<-d.executor.AsyncExec(func() {
+			path := request.GetConnection().GetPath()
+			path.GetPathSegments()[path.GetIndex()].Metrics = d.metricsCollectors[connectionID].Metrics()
+		})
+	}
 	return con, err
 }
 
