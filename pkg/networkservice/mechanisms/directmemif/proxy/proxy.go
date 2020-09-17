@@ -20,10 +20,11 @@
 package proxy
 
 import (
-	"github.com/networkservicemesh/sdk-vppagent/pkg/networkservice/mechanisms/directmemif/metrics"
 	"net"
 	"os"
 	"syscall"
+
+	"github.com/networkservicemesh/sdk-vppagent/pkg/networkservice/mechanisms/directmemif/metrics"
 
 	"github.com/pkg/errors"
 
@@ -38,6 +39,7 @@ const (
 // StopListenerAdapter adapts func() to Listener interface
 type StopListenerAdapter func()
 
+// metricsAdapter adapts sent/received bytes count to metrics.DirectMemifMetrics
 type metricsAdapter func(int) metrics.DirectMemifMetrics
 
 // OnStopped occurs when proxy stopped
@@ -66,7 +68,7 @@ type proxyImpl struct {
 	sourceListener   *net.UnixListener
 	source           *net.UnixAddr
 	target           *net.UnixAddr
-	metricsCollector metrics.MetricsCollector
+	metricsCollector metrics.Collector
 }
 
 type connectionResult struct {
@@ -75,7 +77,7 @@ type connectionResult struct {
 }
 
 // New creates a new proxy for memif connection with specific network
-func New(sourceSocket, targetSocket, network string, metricsCollector metrics.MetricsCollector, listener Listener) (Proxy, error) {
+func New(sourceSocket, targetSocket, network string, metricsCollector metrics.Collector, listener Listener) (Proxy, error) {
 	source, err := net.ResolveUnixAddr(network, sourceSocket)
 	if err != nil {
 		return nil, err
@@ -189,10 +191,10 @@ func (p *proxyImpl) proxy() error {
 	targetStopCh := make(chan struct{})
 
 	go p.transfer(sourceFd, targetFd, sourceStopCh, func(n int) metrics.DirectMemifMetrics {
-		return metrics.DirectMemifMetrics{Tx_bytes: uint(n)}
+		return metrics.DirectMemifMetrics{TxBytes: uint(n)}
 	})
 	go p.transfer(targetFd, sourceFd, targetStopCh, func(n int) metrics.DirectMemifMetrics {
-		return metrics.DirectMemifMetrics{Rx_bytes: uint(n)}
+		return metrics.DirectMemifMetrics{RxBytes: uint(n)}
 	})
 
 	select {

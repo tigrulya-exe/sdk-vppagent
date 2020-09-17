@@ -14,6 +14,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// Package metrics - contains directmemif metrics and metrics collector
 package metrics
 
 import (
@@ -22,44 +23,52 @@ import (
 	"sync"
 )
 
+// DirectMemifMetrics is struct, containing information about directmemif connection
 type DirectMemifMetrics struct {
-	Rx_bytes uint
-	Tx_bytes uint
+	// RxBytes is a total number of bytes received from source
+	RxBytes uint
+	// TxBytes is a total number of bytes transmitted to target
+	TxBytes uint
 }
 
-type MetricsCollector interface {
+// Collector aggregates metrics
+type Collector interface {
 	Update(interface{}) error
 	Metrics() map[string]string
 }
 
+// Collector aggregates DirectMemifMetrics
 type directMemifCollector struct {
 	lock    sync.Mutex
 	metrics DirectMemifMetrics
 }
 
-func NewDirectMemifCollector() MetricsCollector {
+// NewDirectMemifCollector creates directMemifCollector
+func NewDirectMemifCollector() Collector {
 	return &directMemifCollector{}
 }
 
-func (d *directMemifCollector) Update(toMerge interface{}) error {
-	memifMetrics, ok := toMerge.(DirectMemifMetrics)
+// Update updates directMemifCollector's metrics with incoming DirectMemifMetrics
+func (d *directMemifCollector) Update(incomingMetrics interface{}) error {
+	memifMetrics, ok := incomingMetrics.(DirectMemifMetrics)
 	if !ok {
-		return errors.New("Wrong metrics type, should be DirectMemifMetrics")
+		return errors.New("wrong metrics type, should be DirectMemifMetrics")
 	}
 
 	d.lock.Lock()
 	defer d.lock.Unlock()
-	d.metrics.Rx_bytes += memifMetrics.Rx_bytes
-	d.metrics.Tx_bytes += memifMetrics.Tx_bytes
+	d.metrics.RxBytes += memifMetrics.RxBytes
+	d.metrics.TxBytes += memifMetrics.TxBytes
 
 	return nil
 }
 
+// Metrics returns DirectMemifMetrics' map representation
 func (d *directMemifCollector) Metrics() map[string]string {
 	d.lock.Lock()
 	defer d.lock.Unlock()
 	return map[string]string{
-		"rx_bytes": fmt.Sprint(d.metrics.Rx_bytes),
-		"tx_bytes": fmt.Sprint(d.metrics.Tx_bytes),
+		"rx_bytes": fmt.Sprint(d.metrics.RxBytes),
+		"tx_bytes": fmt.Sprint(d.metrics.TxBytes),
 	}
 }
