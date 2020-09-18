@@ -23,9 +23,8 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"sync"
 	"syscall"
-
-	"github.com/networkservicemesh/sdk-vppagent/pkg/networkservice/mechanisms/directmemif/metrics"
 
 	"github.com/pkg/errors"
 
@@ -33,6 +32,10 @@ import (
 )
 
 const (
+	// RxBytes is a total number of bytes received from target
+	rxBytes = "rx_bytes"
+	// TxBytes is a total number of bytes transmitted to target
+	txBytes    = "tx_bytes"
 	bufferSize = 128
 	cmsgSize   = 24
 )
@@ -56,17 +59,19 @@ type Listener interface {
 type Proxy interface {
 	Stop() error
 	Start() error
+	Metrics() map[string]string
 }
 
 type proxyImpl struct {
-	listener         Listener
-	network          string
-	stopCh           chan struct{}
-	errCh            chan error
-	sourceListener   *net.UnixListener
-	source           *net.UnixAddr
-	target           *net.UnixAddr
-	metricsCollector metrics.Collector
+	lock           sync.RWMutex
+	listener       Listener
+	network        string
+	stopCh         chan struct{}
+	errCh          chan error
+	sourceListener *net.UnixListener
+	source         *net.UnixAddr
+	target         *net.UnixAddr
+	metrics        map[string]uint
 }
 
 type connectionResult struct {
@@ -75,7 +80,7 @@ type connectionResult struct {
 }
 
 // New creates a new proxy for memif connection with specific network
-func New(sourceSocket, targetSocket, network string, metricsCollector metrics.Collector, listener Listener) (Proxy, error) {
+func New(sourceSocket, targetSocket, network string, listener Listener) (Proxy, error) {
 	source, err := net.ResolveUnixAddr(network, sourceSocket)
 	if err != nil {
 		return nil, err
@@ -93,11 +98,14 @@ func New(sourceSocket, targetSocket, network string, metricsCollector metrics.Co
 		return nil, err
 	}
 	return &proxyImpl{
-		source:           source,
-		target:           target,
-		network:          network,
-		listener:         listener,
-		metricsCollector: metricsCollector,
+		source:   source,
+		target:   target,
+		network:  network,
+		listener: listener,
+		metrics: map[string]uint{
+			rxBytes: 0,
+			txBytes: 0,
+		},
 	}, nil
 }
 
@@ -145,6 +153,19 @@ func (p *proxyImpl) Stop() error {
 	return err
 }
 
+// Metrics returns direct memif metrics' map representation
+func (p *proxyImpl) Metrics() map[string]string {
+	p.lock.RLock()
+	defer p.lock.RUnlock()
+
+	result := make(map[string]string)
+	for k, v := range p.metrics {
+		result[k] = fmt.Sprint(v)
+	}
+
+	return result
+}
+
 func (p *proxyImpl) proxy() error {
 	sourceConn, err := acceptConnectionAsync(p.sourceListener, p.stopCh)
 	if err != nil {
@@ -188,8 +209,8 @@ func (p *proxyImpl) proxy() error {
 	sourceStopCh := make(chan struct{})
 	targetStopCh := make(chan struct{})
 
-	go p.transfer(sourceFd, targetFd, sourceStopCh, metrics.TxBytes)
-	go p.transfer(targetFd, sourceFd, targetStopCh, metrics.RxBytes)
+	go p.transfer(sourceFd, targetFd, sourceStopCh, txBytes)
+	go p.transfer(targetFd, sourceFd, targetStopCh, rxBytes)
 
 	select {
 	case <-p.stopCh:
@@ -278,11 +299,9 @@ func (p *proxyImpl) transfer(fromFd, toFd int, stopCh chan struct{}, metricsKey 
 				return
 			}
 
-			if p.metricsCollector != nil {
-				_ = p.metricsCollector.Update(map[string]string{
-					metricsKey: fmt.Sprint(dataN),
-				})
-			}
+			p.lock.Lock()
+			p.metrics[metricsKey] += uint(dataN)
+			p.lock.Unlock()
 		}
 	}
 }

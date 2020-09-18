@@ -30,7 +30,7 @@ import (
 )
 
 func TestClosingOpeningMemifProxy(t *testing.T) {
-	p, err := proxy.New("source.sock", "target.sock", "unix", nil, nil)
+	p, err := proxy.New("source.sock", "target.sock", "unix", nil)
 	require.Nil(t, err)
 	for i := 0; i < 10; i++ {
 		err = p.Start()
@@ -42,9 +42,9 @@ func TestClosingOpeningMemifProxy(t *testing.T) {
 
 func TestTransferBetweenMemifProxies(t *testing.T) {
 	for i := 0; i < 10; i++ {
-		p1, err := proxy.New("source.sock", "target.sock", "unix", nil, nil)
+		p1, err := proxy.New("source.sock", "target.sock", "unix", nil)
 		require.Nil(t, err)
-		p2, err := proxy.New("target.sock", "source.sock", "unix", nil, nil)
+		p2, err := proxy.New("target.sock", "source.sock", "unix", nil)
 		require.Nil(t, err)
 		err = p1.Start()
 		require.Nil(t, err)
@@ -63,7 +63,7 @@ func TestTransferBetweenMemifProxies(t *testing.T) {
 
 func TestProxyListenerCalled(t *testing.T) {
 	proxyState := uint32(0)
-	p, err := proxy.New("source.sock", "target.sock", "unix", nil, proxy.StopListenerAdapter(func() {
+	p, err := proxy.New("source.sock", "target.sock", "unix", proxy.StopListenerAdapter(func() {
 		atomic.StoreUint32(&proxyState, 1)
 	}))
 	require.Nil(t, err)
@@ -81,7 +81,7 @@ func TestProxyListenerCalled(t *testing.T) {
 
 func TestProxyListenerCalledOnDestroySocketFile(t *testing.T) {
 	proxyState := uint32(0)
-	p, err := proxy.New("source.sock", "target.sock", "unix", nil, proxy.StopListenerAdapter(func() {
+	p, err := proxy.New("source.sock", "target.sock", "unix", proxy.StopListenerAdapter(func() {
 		atomic.StoreUint32(&proxyState, 1)
 	}))
 	require.Nil(t, err)
@@ -102,7 +102,7 @@ func TestProxyListenerCalledOnDestroySocketFile(t *testing.T) {
 func TestStartProxyIfSocketFileIsExist(t *testing.T) {
 	_, err := os.Create("source.sock")
 	require.Nil(t, err)
-	p, err := proxy.New("source.sock", "target.sock", "unix", nil, nil)
+	p, err := proxy.New("source.sock", "target.sock", "unix", nil)
 	require.Nil(t, err)
 	err = p.Start()
 	require.Nil(t, err)

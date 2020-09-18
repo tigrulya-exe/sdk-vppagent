@@ -24,8 +24,6 @@ import (
 
 	interfaces "go.ligato.io/vpp-agent/v3/proto/ligato/vpp/interfaces"
 
-	"github.com/networkservicemesh/sdk-vppagent/pkg/networkservice/mechanisms/directmemif/metrics"
-
 	"github.com/golang/protobuf/ptypes/empty"
 	"go.ligato.io/vpp-agent/v3/proto/ligato/vpp"
 	l2 "go.ligato.io/vpp-agent/v3/proto/ligato/vpp/l2"
@@ -39,10 +37,9 @@ import (
 )
 
 type directMemifServer struct {
-	net               string
-	executor          serialize.Executor
-	proxies           map[string]proxy.Proxy
-	metricsCollectors map[string]metrics.Collector
+	net      string
+	executor serialize.Executor
+	proxies  map[string]proxy.Proxy
 }
 
 // NewServer creates new direct memif server
@@ -53,10 +50,9 @@ func NewServer() networkservice.NetworkServiceServer {
 // NewServerWithNetwork creates new direct memif server with specific network
 func NewServerWithNetwork(net string) networkservice.NetworkServiceServer {
 	return &directMemifServer{
-		executor:          serialize.NewExecutor(),
-		proxies:           map[string]proxy.Proxy{},
-		metricsCollectors: map[string]metrics.Collector{},
-		net:               net,
+		executor: serialize.NewExecutor(),
+		proxies:  map[string]proxy.Proxy{},
+		net:      net,
 	}
 }
 
@@ -74,10 +70,7 @@ func (d *directMemifServer) Request(ctx context.Context, request *networkservice
 	vc.Interfaces = vc.GetInterfaces()[:l-2]
 
 	connectionID := request.GetConnection().GetId()
-	if _, ok := d.metricsCollectors[connectionID]; !ok {
-		d.metricsCollectors[connectionID] = metrics.NewDirectMemifCollector()
-	}
-	p, err := proxy.New(client.GetMemif().GetSocketFilename(), endpoint.GetMemif().GetSocketFilename(), d.net, d.metricsCollectors[connectionID],
+	p, err := proxy.New(client.GetMemif().GetSocketFilename(), endpoint.GetMemif().GetSocketFilename(), d.net,
 		proxy.StopListenerAdapter(func() {
 			d.executor.AsyncExec(func() {
 				delete(d.proxies, connectionID)
@@ -108,7 +101,7 @@ func (d *directMemifServer) Request(ctx context.Context, request *networkservice
 	if err == nil {
 		<-d.executor.AsyncExec(func() {
 			path := request.GetConnection().GetPath()
-			path.GetPathSegments()[path.GetIndex()].Metrics = d.metricsCollectors[connectionID].Metrics()
+			path.GetPathSegments()[path.GetIndex()].Metrics = d.proxies[connectionID].Metrics()
 		})
 	}
 	return con, err
@@ -131,9 +124,6 @@ func (d *directMemifServer) Close(ctx context.Context, conn *networkservice.Conn
 			_ = d.proxies[conn.Id].Stop()
 			delete(d.proxies, conn.Id)
 		}
-		d.executor.AsyncExec(func() {
-			delete(d.metricsCollectors, conn.Id)
-		})
 	})
 	return next.Server(ctx).Close(ctx, conn)
 }
