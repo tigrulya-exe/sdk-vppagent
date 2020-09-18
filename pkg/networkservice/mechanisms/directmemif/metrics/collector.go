@@ -18,57 +18,69 @@
 package metrics
 
 import (
-	"errors"
 	"fmt"
+	"strconv"
 	"sync"
+
+	"github.com/pkg/errors"
 )
 
-// DirectMemifMetrics is struct, containing information about directmemif connection
-type DirectMemifMetrics struct {
+const (
 	// RxBytes is a total number of bytes received from target
-	RxBytes uint
+	RxBytes = "rx_bytes"
 	// TxBytes is a total number of bytes transmitted to target
-	TxBytes uint
-}
+	TxBytes = "tx_bytes"
+)
 
 // Collector aggregates metrics
 type Collector interface {
-	Update(interface{}) error
+	Update(map[string]string) error
 	Metrics() map[string]string
 }
 
-// Collector aggregates DirectMemifMetrics
+// Collector aggregates direct memif metrics
 type directMemifCollector struct {
 	lock    sync.Mutex
-	metrics DirectMemifMetrics
+	metrics map[string]uint64
 }
 
 // NewDirectMemifCollector creates directMemifCollector
 func NewDirectMemifCollector() Collector {
-	return &directMemifCollector{}
+	return &directMemifCollector{
+		metrics: map[string]uint64{
+			RxBytes: 0,
+			TxBytes: 0,
+		},
+	}
 }
 
-// Update updates directMemifCollector's metrics with incoming DirectMemifMetrics
-func (d *directMemifCollector) Update(incomingMetrics interface{}) error {
-	memifMetrics, ok := incomingMetrics.(DirectMemifMetrics)
-	if !ok {
-		return errors.New("wrong metrics type, should be DirectMemifMetrics")
-	}
-
+// Update updates directMemifCollector's metrics with incoming metrics
+func (d *directMemifCollector) Update(incomingMetrics map[string]string) error {
 	d.lock.Lock()
 	defer d.lock.Unlock()
-	d.metrics.RxBytes += memifMetrics.RxBytes
-	d.metrics.TxBytes += memifMetrics.TxBytes
+	for k, v := range incomingMetrics {
+		value, err := strconv.ParseUint(v, 10, 0)
+		if err != nil {
+			return err
+		}
+
+		if _, ok := d.metrics[k]; !ok {
+			return errors.Errorf("Unknown key: %v", k)
+		}
+		d.metrics[k] += value
+	}
 
 	return nil
 }
 
-// Metrics returns DirectMemifMetrics' map representation
+// Metrics returns direct memif metrics' map representation
 func (d *directMemifCollector) Metrics() map[string]string {
 	d.lock.Lock()
 	defer d.lock.Unlock()
-	return map[string]string{
-		"rx_bytes": fmt.Sprint(d.metrics.RxBytes),
-		"tx_bytes": fmt.Sprint(d.metrics.TxBytes),
+	result := make(map[string]string)
+	for k, v := range d.metrics {
+		result[k] = fmt.Sprint(v)
 	}
+
+	return result
 }

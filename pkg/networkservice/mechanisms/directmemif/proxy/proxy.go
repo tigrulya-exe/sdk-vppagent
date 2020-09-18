@@ -20,6 +20,7 @@
 package proxy
 
 import (
+	"fmt"
 	"net"
 	"os"
 	"syscall"
@@ -38,9 +39,6 @@ const (
 
 // StopListenerAdapter adapts func() to Listener interface
 type StopListenerAdapter func()
-
-// metricsAdapter adapts sent/received bytes count to metrics.DirectMemifMetrics
-type metricsAdapter func(int) metrics.DirectMemifMetrics
 
 // OnStopped occurs when proxy stopped
 func (f StopListenerAdapter) OnStopped() {
@@ -190,12 +188,8 @@ func (p *proxyImpl) proxy() error {
 	sourceStopCh := make(chan struct{})
 	targetStopCh := make(chan struct{})
 
-	go p.transfer(sourceFd, targetFd, sourceStopCh, func(n int) metrics.DirectMemifMetrics {
-		return metrics.DirectMemifMetrics{TxBytes: uint(n)}
-	})
-	go p.transfer(targetFd, sourceFd, targetStopCh, func(n int) metrics.DirectMemifMetrics {
-		return metrics.DirectMemifMetrics{RxBytes: uint(n)}
-	})
+	go p.transfer(sourceFd, targetFd, sourceStopCh, metrics.TxBytes)
+	go p.transfer(targetFd, sourceFd, targetStopCh, metrics.RxBytes)
 
 	select {
 	case <-p.stopCh:
@@ -255,7 +249,7 @@ func acceptConnectionAsync(listener *net.UnixListener, stopCh <-chan struct{}) (
 	}
 }
 
-func (p *proxyImpl) transfer(fromFd, toFd int, stopCh chan struct{}, adapter metricsAdapter) {
+func (p *proxyImpl) transfer(fromFd, toFd int, stopCh chan struct{}, metricsKey string) {
 	dataBuffer := make([]byte, bufferSize)
 	cmsgBuffer := make([]byte, cmsgSize)
 	defer close(stopCh)
@@ -285,7 +279,9 @@ func (p *proxyImpl) transfer(fromFd, toFd int, stopCh chan struct{}, adapter met
 			}
 
 			if p.metricsCollector != nil {
-				_ = p.metricsCollector.Update(adapter(dataN))
+				_ = p.metricsCollector.Update(map[string]string{
+					metricsKey: fmt.Sprint(dataN),
+				})
 			}
 		}
 	}
