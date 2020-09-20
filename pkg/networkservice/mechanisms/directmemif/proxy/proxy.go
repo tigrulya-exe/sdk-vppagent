@@ -234,7 +234,9 @@ func connectToTargetAsync(target *net.UnixAddr, network string, stopCh <-chan st
 			conn: conn,
 			err:  err,
 		}
-		logrus.Info("Connected to target socket")
+		if err == nil {
+			logrus.Info("Connected to target socket")
+		}
 	}()
 	for {
 		select {
