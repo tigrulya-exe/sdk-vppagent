@@ -300,6 +300,7 @@ func (p *proxyImpl) transfer(fromFd, toFd int, stopCh chan struct{}, metricsKey 
 				logrus.Error(err)
 				return
 			}
+			logrus.Infof("Send message to %v", toFd)
 
 			p.lock.Lock()
 			p.metrics[metricsKey] += uint(dataN)
