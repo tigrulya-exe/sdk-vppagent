@@ -18,72 +18,86 @@ package kernelvethpair
 
 import (
 	"context"
+	"fmt"
+	"net/url"
 
+	"github.com/networkservicemesh/api/pkg/api/networkservice"
+	"github.com/networkservicemesh/api/pkg/api/networkservice/mechanisms/kernel"
+	"github.com/pkg/errors"
+	"go.ligato.io/vpp-agent/v3/proto/ligato/configurator"
 	linuxinterfaces "go.ligato.io/vpp-agent/v3/proto/ligato/linux/interfaces"
 	linuxnamespace "go.ligato.io/vpp-agent/v3/proto/ligato/linux/namespace"
 	vppinterfaces "go.ligato.io/vpp-agent/v3/proto/ligato/vpp/interfaces"
 
-	"github.com/networkservicemesh/api/pkg/api/networkservice"
-	"github.com/networkservicemesh/api/pkg/api/networkservice/mechanisms/common"
-	"github.com/networkservicemesh/api/pkg/api/networkservice/mechanisms/kernel"
-
 	"github.com/networkservicemesh/sdk-vppagent/pkg/networkservice/vppagent"
 )
 
-func appendInterfaceConfig(ctx context.Context, conn *networkservice.Connection, name string, fileNameFromInodeNumberFunc func(string) (string, error)) (*linuxinterfaces.Interface, error) {
+const (
+	fileScheme = "file"
+)
+
+func appendInterfaceConfig(ctx context.Context, conn *networkservice.Connection, prefix string) error {
 	if mechanism := kernel.ToMechanism(conn.GetMechanism()); mechanism != nil {
-		conf := vppagent.Config(ctx)
-		filepath, err := fileNameFromInodeNumberFunc(mechanism.GetParameters()[common.NetNSInodeKey])
+		netNSURLStr := mechanism.GetNetNSURL()
+		netNSURL, err := url.Parse(netNSURLStr)
 		if err != nil {
-			return nil, err
+			return err
 		}
-		linuxName := name
-		if len(linuxName) > kernel.LinuxIfMaxLength {
-			linuxName = linuxName[:kernel.LinuxIfMaxLength]
+		if netNSURL.Scheme != fileScheme {
+			return errors.Errorf("kernel.ToMechanism(conn.GetMechanism()).GetNetNSURL() must be of scheme %q: %q", fileScheme, netNSURL)
 		}
-		conf.GetLinuxConfig().Interfaces = append(conf.GetLinuxConfig().Interfaces,
-			&linuxinterfaces.Interface{
-				Name:       name + "-veth",
-				Type:       linuxinterfaces.Interface_VETH,
-				Enabled:    true,
-				HostIfName: linuxName,
-				Link: &linuxinterfaces.Interface_Veth{
-					Veth: &linuxinterfaces.VethLink{
-						PeerIfName:           name,
-						RxChecksumOffloading: linuxinterfaces.VethLink_CHKSM_OFFLOAD_DISABLED,
-						TxChecksumOffloading: linuxinterfaces.VethLink_CHKSM_OFFLOAD_DISABLED,
-					},
+		vppagentConfigTemplate(vppagent.Config(ctx), fmt.Sprintf("%s-%s", prefix, conn.GetId()), kernel.ToMechanism(conn.GetMechanism()).GetInterfaceName(conn), netNSURL.Path)
+	}
+	return nil
+}
+
+func vppagentConfigTemplate(conf *configurator.Config, name, ifaceName, netnsFilename string) {
+	conf.GetLinuxConfig().Interfaces = append(conf.GetLinuxConfig().Interfaces,
+		&linuxinterfaces.Interface{
+			Name:       name + "-veth",
+			Type:       linuxinterfaces.Interface_VETH,
+			Enabled:    true,
+			HostIfName: linuxIfaceName(name),
+			Link: &linuxinterfaces.Interface_Veth{
+				Veth: &linuxinterfaces.VethLink{
+					PeerIfName:           name,
+					RxChecksumOffloading: linuxinterfaces.VethLink_CHKSM_OFFLOAD_DISABLED,
+					TxChecksumOffloading: linuxinterfaces.VethLink_CHKSM_OFFLOAD_DISABLED,
 				},
 			},
-			&linuxinterfaces.Interface{
-				Name:       name,
-				Type:       linuxinterfaces.Interface_VETH,
-				Enabled:    true,
-				HostIfName: mechanism.GetInterfaceName(conn),
-				Namespace: &linuxnamespace.NetNamespace{
-					Type:      linuxnamespace.NetNamespace_FD,
-					Reference: filepath,
-				},
-				Link: &linuxinterfaces.Interface_Veth{
-					Veth: &linuxinterfaces.VethLink{
-						PeerIfName:           name + "-veth",
-						RxChecksumOffloading: linuxinterfaces.VethLink_CHKSM_OFFLOAD_DISABLED,
-						TxChecksumOffloading: linuxinterfaces.VethLink_CHKSM_OFFLOAD_DISABLED,
-					},
-				},
-			})
-		conf.GetVppConfig().Interfaces = append(conf.GetVppConfig().Interfaces, &vppinterfaces.Interface{
-			Name:    name,
-			Type:    vppinterfaces.Interface_AF_PACKET,
-			Enabled: true,
-			Link: &vppinterfaces.Interface_Afpacket{
-				Afpacket: &vppinterfaces.AfpacketLink{
-					HostIfName: linuxName,
+		},
+		&linuxinterfaces.Interface{
+			Name:       name,
+			Type:       linuxinterfaces.Interface_VETH,
+			Enabled:    true,
+			HostIfName: linuxIfaceName(ifaceName),
+			Namespace: &linuxnamespace.NetNamespace{
+				Type:      linuxnamespace.NetNamespace_FD,
+				Reference: netnsFilename,
+			},
+			Link: &linuxinterfaces.Interface_Veth{
+				Veth: &linuxinterfaces.VethLink{
+					PeerIfName:           name + "-veth",
+					RxChecksumOffloading: linuxinterfaces.VethLink_CHKSM_OFFLOAD_DISABLED,
+					TxChecksumOffloading: linuxinterfaces.VethLink_CHKSM_OFFLOAD_DISABLED,
 				},
 			},
 		})
-		index := len(conf.GetLinuxConfig().GetInterfaces()) - 1
-		return conf.GetLinuxConfig().GetInterfaces()[index], nil
+	conf.GetVppConfig().Interfaces = append(conf.GetVppConfig().Interfaces, &vppinterfaces.Interface{
+		Name:    name,
+		Type:    vppinterfaces.Interface_AF_PACKET,
+		Enabled: true,
+		Link: &vppinterfaces.Interface_Afpacket{
+			Afpacket: &vppinterfaces.AfpacketLink{
+				HostIfName: linuxIfaceName(name),
+			},
+		},
+	})
+}
+
+func linuxIfaceName(ifaceName string) string {
+	if len(ifaceName) <= kernel.LinuxIfMaxLength {
+		return ifaceName
 	}
-	return nil, nil
+	return ifaceName[:kernel.LinuxIfMaxLength]
 }

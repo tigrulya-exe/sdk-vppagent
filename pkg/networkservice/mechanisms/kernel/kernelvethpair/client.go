@@ -20,14 +20,11 @@ package kernelvethpair
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/golang/protobuf/ptypes/empty"
 	"google.golang.org/grpc"
 
 	"github.com/networkservicemesh/api/pkg/api/networkservice/mechanisms/cls"
-
-	"github.com/networkservicemesh/sdk-vppagent/pkg/tools/netnsinode"
 
 	"github.com/networkservicemesh/api/pkg/api/networkservice"
 	"github.com/networkservicemesh/api/pkg/api/networkservice/mechanisms/kernel"
@@ -35,23 +32,11 @@ import (
 	"github.com/networkservicemesh/sdk/pkg/networkservice/core/next"
 )
 
-type kernelVethPairClient struct {
-	fileNameFromInodeNumberFunc func(string) (string, error)
-}
+type kernelVethPairClient struct{}
 
 // NewClient provides NetworkServiceClient chain elements that support the kernel Mechanism using veth pairs
 func NewClient() networkservice.NetworkServiceClient {
-	return &kernelVethPairClient{
-		fileNameFromInodeNumberFunc: netnsinode.LinuxNetNSFileName,
-	}
-}
-
-// NewTestableClient - same as NewClient, but allows provision of fileNameFromInodeNumberFunc to allow for testing
-func NewTestableClient(fileNameFromInodeNumberFunc func(string) (string, error)) networkservice.NetworkServiceClient {
-	client := NewClient()
-	rv := client.(*kernelVethPairClient)
-	rv.fileNameFromInodeNumberFunc = fileNameFromInodeNumberFunc
-	return rv
+	return &kernelVethPairClient{}
 }
 
 func (k *kernelVethPairClient) Request(ctx context.Context, request *networkservice.NetworkServiceRequest, opts ...grpc.CallOption) (*networkservice.Connection, error) {
@@ -64,7 +49,7 @@ func (k *kernelVethPairClient) Request(ctx context.Context, request *networkserv
 	if err != nil {
 		return nil, err
 	}
-	if _, err := appendInterfaceConfig(ctx, conn, fmt.Sprintf("client-%s", conn.GetId()), k.fileNameFromInodeNumberFunc); err != nil {
+	if err := appendInterfaceConfig(ctx, conn, "client"); err != nil {
 		return nil, err
 	}
 	return conn, nil
@@ -75,8 +60,9 @@ func (k *kernelVethPairClient) Close(ctx context.Context, conn *networkservice.C
 	if err != nil {
 		return nil, err
 	}
-	if _, configErr := appendInterfaceConfig(ctx, conn, fmt.Sprintf("client-%s", conn.GetId()), k.fileNameFromInodeNumberFunc); configErr != nil {
-		return nil, configErr
+	err = appendInterfaceConfig(ctx, conn, "client")
+	if err != nil {
+		return nil, err
 	}
 	return rv, err
 }
